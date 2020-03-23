@@ -342,4 +342,27 @@ public abstract class AbstractObjectStamp extends AbstractPointerStamp {
         }
         return super.equals(other);
     }
+
+    public boolean weakEquals(Object obj) {
+        if (this == obj) {
+            return true;
+        }
+        if (obj == null || getClass() != obj.getClass()) {
+            return false;
+        }
+        AbstractObjectStamp other = (AbstractObjectStamp) obj;
+
+        if (type == null) {
+            if (other.type != null && !other.type.isJavaLangObject()) {
+                return false;
+            }
+        } else if (other.type == null) {
+            if (type != null && !type.isJavaLangObject()) {
+                return false;
+            }
+        } else if (!type.equals(other.type)) {
+            return false;
+        }
+        return super.equals(other);
+    }
 }

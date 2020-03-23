@@ -41,6 +41,7 @@ import org.graalvm.compiler.nodes.LogicConstantNode;
 import org.graalvm.compiler.nodes.LogicNegationNode;
 import org.graalvm.compiler.nodes.LogicNode;
 import org.graalvm.compiler.nodes.NodeView;
+import org.graalvm.compiler.nodes.PiNode;
 import org.graalvm.compiler.nodes.UnaryOpLogicNode;
 import org.graalvm.compiler.nodes.ValueNode;
 import org.graalvm.compiler.nodes.calc.ConditionalNode;
@@ -75,8 +76,24 @@ public class InstanceOfNode extends UnaryOpLogicNode implements Lowerable, Virtu
         this(TYPE, checkedStamp, object, profile, anchor);
     }
 
+    private void appendToSB(StringBuilder sb, String name, Object o) {
+        if (o != null)
+            sb.append("\n > ").append(name).append(" : ").append(o.toString());
+    }
+
     protected InstanceOfNode(NodeClass<? extends InstanceOfNode> c, ObjectStamp checkedStamp, ValueNode object, JavaTypeProfile profile, AnchoringNode anchor) {
         super(c, object);
+
+        StringBuilder sb = new StringBuilder("InstanceOfNode: ");
+
+        appendToSB(sb, "NodeClass", c);
+        appendToSB(sb, "ObjectStamp", checkedStamp);
+        appendToSB(sb, "ValueNode", object);
+        appendToSB(sb, "JavaTypeProfile", profile);
+        appendToSB(sb, "AnchoringNode", anchor);
+
+//        System.out.println(sb.toString());
+
         this.checkedStamp = checkedStamp;
         this.profile = profile;
         this.anchor = anchor;
@@ -119,6 +136,19 @@ public class InstanceOfNode extends UnaryOpLogicNode implements Lowerable, Virtu
         NodeView view = NodeView.from(tool);
         LogicNode synonym = findSynonym(checkedStamp, forValue, view);
         if (synonym != null) {
+            if (checkedStamp.toString().equals("a! Lgenerated/A0;") && forValue instanceof PiNode) {
+                if (synonym instanceof LogicConstantNode && ((LogicConstantNode) synonym).getValue()) {
+                    System.out.println("We have a reduction!!!");
+                    System.out.println("Reduction; checkedStamp = " + checkedStamp.toString() + "; valueStamp = " +
+                            ((PiNode) forValue).piStamp().toString() + "; view = " + view.toString());
+                }
+            }
+
+            // TODO: Ok, so the current setup works by default for U and TL; There is another problem however:
+            //       when working with L, the input will be a!# Lgenerated/A99; and the instanceof a! Lgenerated/A0;
+            //       this is obviously problematic, since in this case, not only is the input exact, but it's also
+            //       a different class. One solution might be to use the meet stamp, since this will resolve to the
+            //       root class, generally, i.e. a! Lgenerated/A0;
             return synonym;
         } else {
             return this;
@@ -129,20 +159,33 @@ public class InstanceOfNode extends UnaryOpLogicNode implements Lowerable, Virtu
         ObjectStamp inputStamp = (ObjectStamp) object.stamp(view);
         ObjectStamp joinedStamp = (ObjectStamp) checkedStamp.join(inputStamp);
 
+        if (checkedStamp.toString().equals("a! Lgenerated/A0;") && object instanceof PiNode) {
+//            PiNode piNode = (PiNode) object;
+
+//            piNode.inferStamp();
+            System.out.println("In findSynonym; checkedStamp = " + checkedStamp.toString() + "; valueStamp = " +
+                    inputStamp.toString() + "; view = " + view.toString());
+            System.out.println("The joined stamp: " + joinedStamp.toString() + " " + joinedStamp.javaType(null).toString());
+        }
+
         if (joinedStamp.isEmpty()) {
             // The check can never succeed, the intersection of the two stamps is empty.
             return LogicConstantNode.contradiction();
         } else {
             ObjectStamp meetStamp = (ObjectStamp) checkedStamp.meet(inputStamp);
-            if (checkedStamp.equals(meetStamp)) {
-                // The check will always succeed, the union of the two stamps is equal to the
-                // checked stamp.
+            if (checkedStamp.toString().equals("a! Lgenerated/A0;") && object instanceof PiNode) {
+                System.out.println("The meet stamp: " + meetStamp.toString() + " " + meetStamp.javaType(null).toString());
+                System.out.println("Tautology? " + meetStamp.equals(joinedStamp));
+            }
+//            if (checkedStamp.equals(meetStamp) || (meetStamp.toString().contains("Lgenerated/A0;") &&
+//                    joinedStamp.toString().contains("Lgenerated/A0;"))) { // || checkedStamp.weakEquals(meetStamp)) {
+            if (checkedStamp.weakEquals(meetStamp)) {
                 return LogicConstantNode.tautology();
             } else if (checkedStamp.alwaysNull()) {
                 return IsNullNode.create(object);
             } else if (Objects.equals(checkedStamp.type(), meetStamp.type()) && checkedStamp.isExactType() == meetStamp.isExactType() && checkedStamp.alwaysNull() == meetStamp.alwaysNull()) {
                 assert checkedStamp.nonNull() != inputStamp.nonNull();
-                // The only difference makes the null-ness of the value => simplify the check.
+                // The only difference makes the null-ness of the value =>Unglaublich simplify the check.
                 if (checkedStamp.nonNull()) {
                     return LogicNegationNode.create(IsNullNode.create(object));
                 } else {
@@ -185,6 +228,7 @@ public class InstanceOfNode extends UnaryOpLogicNode implements Lowerable, Virtu
 
     @Override
     public TriState tryFold(Stamp valueStamp) {
+//        System.out.println("In tryFold; valueStamp = " + valueStamp.toString());
         if (valueStamp instanceof ObjectStamp) {
             ObjectStamp inputStamp = (ObjectStamp) valueStamp;
             ObjectStamp joinedStamp = (ObjectStamp) checkedStamp.join(inputStamp);
